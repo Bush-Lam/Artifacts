@@ -92,12 +92,26 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
         }
     }
 
-    public void RecalculateStackAmounts(int InvSlot, int Quantity)
+    public void RecalculateStackAmounts(int InvSlot, int Quantity) // typeofstacks = misc or potions, maybe weapons
     {
         if (terrain.canvas.GetComponent<MainGUI>().inventory != null)
         {
             if (InventoryManage[InvSlot].StackAmounts >= Quantity)
             {
+                for (int i = 0; i < MiscItems.Miscellaneousitems.Count; i++)
+                {
+                    if (MiscItems.Miscellaneousitems[i].MiscellaneousItemName == InventoryManage[InvSlot].SlotName)
+                    {
+                        MiscItems.TotalMiscellaneousStacks[i] -= Quantity;
+                        skillbarGUI.CheckAllUpdateStacksFromCraftingWindow(InventoryManage[InvSlot].SlotName, MiscItems.TotalMiscellaneousStacks[i]);
+                    }
+                }
+                for (int i = 0; i < Potions.PotionList.Count; i++)
+                {
+                    if (Potions.PotionList[i].PotionName == InventoryManage[InvSlot].SlotName)
+                        Potions.TotalPotionStacks[i] -= Quantity;
+                }
+
                 InventoryManage[InvSlot].StackAmounts = (int.Parse(InventoryButtonsStackText[InventoryManage[InvSlot].CurrentInventorySlot].GetComponentInChildren<Text>().text) - Quantity);
                 InventoryButtonsStackText[InventoryManage[InvSlot].CurrentInventorySlot].GetComponentInChildren<Text>().text = InventoryManage[InvSlot].StackAmounts.ToString();   
             }           
@@ -139,7 +153,9 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
                 InventoryManage[i].StackAmounts + InvManage.StackAmounts < 51)
             {
                 InventoryManage[i].StackAmounts += InvManage.StackAmounts;
-                InventoryButtonsStackText[InventoryManage[i].CurrentInventorySlot].text = InventoryManage[i].StackAmounts.ToString();
+                RecalculateStackAmounts(i, -InvManage.StackAmounts);
+
+                //InventoryButtonsStackText[InventoryManage[i].CurrentInventorySlot].text = InventoryManage[i].StackAmounts.ToString();
                 InventoryButtonsIcons[InventoryManage[i].CurrentInventorySlot].sprite = InvManage.tSprite;
                 InventoryButtonsIcons[InventoryManage[i].CurrentInventorySlot].GetComponent<Mask>().showMaskGraphic = true;
                 return;
@@ -163,9 +179,9 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
 
         if (InvManage.isASecondary == 1) 
         {
-            if (InventoryManage[InventoryManage.Count - 1].CurrentInventorySlot != InvManage.CurrentInventorySlot)
-                InventoryManage[InventoryCount].StackAmounts += InvManage.StackAmounts;
-            InventoryButtonsStackText[InventoryCount].text = InvManage.StackAmounts.ToString();
+            //if (InventoryManage[InventoryManage.Count - 1].CurrentInventorySlot != InvManage.CurrentInventorySlot)
+            InventoryButtonsStackText[InventoryCount].text = "0"; // needed for recalculate to work at start
+            RecalculateStackAmounts(InventoryManage.Count - 1, -InvManage.StackAmounts);
         }
 
         InventoryButtonsIcons[InventoryCount].sprite = InvManage.tSprite;
@@ -182,16 +198,6 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
             if (InventoryButtonsIcons[CurrentInventoryItemSlot].sprite.name == EquipArmor.ArmorList[i].ArmorName &&
                 Stats.PlayerLevel >= EquipArmor.ArmorList[i].LevelRank)
             {
-                if (movement.Attacking == false)
-                {
-                    InventoryButtonRects[CurrentInventoryItemSlot].transform.GetComponent<Image>().color = new Color(0.7f, 0.7f, 0.7f, 0.66f);
-                    if (SwitchArmor.CurrentArmorIteration != -1)
-                        InventoryButtonRects[SwitchArmor.CurrentArmorIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
-                    else if (SwitchArmor.CurrentHelmetIteration != -1)
-                        InventoryButtonRects[SwitchArmor.CurrentHelmetIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
-                    else if (SwitchArmor.CurrentLegsIteration != -1)
-                        InventoryButtonRects[SwitchArmor.CurrentLegsIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
-                }
                 SwitchArmor.StartCoroutine(SwitchArmor.InstantiateArmors(CurrentInventoryItemSlot));
             }
         }
@@ -219,10 +225,9 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
     {
         for (int i = 0; i < ToolItems.ToolList.Count; i++)
         {
-            if (InventoryButtonsIcons[CurrentInventoryItemSlot].sprite.name == ToolItems.ToolList[i].ToolName && SwitchWeapons.CurrentItemId !=
-                ToolItems.ToolList[i].ToolId)
+            if (InventoryButtonsIcons[CurrentInventoryItemSlot].sprite.name == ToolItems.ToolList[i].ToolName)
             {
-                if (movement.Attacking == false)
+                if (movement.Attacking == false && ToolItems.ToolList[i].ToolId != 1 && ToolItems.ToolList[i].ToolId != 2)
                 {
                     InventoryButtonRects[CurrentInventoryItemSlot].transform.GetComponent<Image>().color = new Color(0.7f, 0.7f, 0.7f, 0.66f);
                     if (SwitchWeapons.CurrentWeaponItemSlot != -1)
@@ -243,7 +248,8 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
         if (AddorRemove == 1)
         {
             DroppedItemList.Add(items);
-            yield return new WaitForSeconds(10);
+
+            yield return new WaitForSeconds(120);
             if (obj != null)
             {
                 for (int i = 0; i < DroppedItemList.Count; i++)
@@ -263,31 +269,26 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
         }
     }
 
-    public void DropStackAmounts(Image StackAmountImageREF, GameObject PreviousButtonLocation)
+    public void DropStackAmounts(Image StackAmountImageREF, GameObject PreviousButtonLocation) // i == inventoryIndex
     {
         if (StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text != string.Empty)
         {
             if (int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text) <= int.Parse(PreviousButtonLocation.GetComponentInChildren<Text>().text))
             {
-                for (int i = 0; i < InventoryManage.Count; i++)
+                for (int i = 0; i < InventoryManage.Count; i++) // misc and pots
                 {
                     if (InventoryManage[i].CurrentInventorySlot == int.Parse(PreviousButtonLocation.name))
                     {
                         GameObject Items = PhotonNetwork.Instantiate(StackAmountImageREF.transform.Find("Image").Find("ImageSprite").GetComponent<Image>().sprite.name, terrain.Player.transform.position + new Vector3(0, 2, 0) + terrain.Player.transform.forward, Quaternion.Euler(0, 0, 0), 0)
-                             as GameObject;
+                                as GameObject;
                         InventoryManager ItemsDrop = new InventoryManager(InventoryManage[i].SlotName, InventoryManage[i].Rarity, InventoryManage[i].tSprite, Items, InventoryManage[i].DamageOrValue, InventoryManage[i].WeaponAttackSpeed, InventoryManage[i].CritRate, InventoryManage[i].ArmorPenetration, InventoryManage[i].Defense, InventoryManage[i].Health, InventoryManage[i].Stamina, InventoryManage[i].CurrentInventorySlot, int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text), 1);
-                        terrain.canvas.GetPhotonView().RPC("AddandRemoveDropList", PhotonTargets.AllBufferedViaServer, InventoryManage[i].SlotName, InventoryManage[i].Rarity, Items.GetPhotonView().viewID,InventoryManage[i].DamageOrValue, InventoryManage[i].WeaponAttackSpeed, InventoryManage[i].CritRate, InventoryManage[i].ArmorPenetration, InventoryManage[i].Defense, InventoryManage[i].Health, InventoryManage[i].Stamina, InventoryManage[i].CurrentInventorySlot, int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text), 1, 1, DroppedItemList.Count);
+                        terrain.canvas.GetPhotonView().RPC("AddandRemoveDropList", PhotonTargets.AllBufferedViaServer, InventoryManage[i].SlotName, InventoryManage[i].Rarity, Items.GetPhotonView().viewID, InventoryManage[i].DamageOrValue, InventoryManage[i].WeaponAttackSpeed, InventoryManage[i].CritRate, InventoryManage[i].ArmorPenetration, InventoryManage[i].Defense, InventoryManage[i].Health, InventoryManage[i].Stamina, InventoryManage[i].CurrentInventorySlot, int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text), 1, 1, DroppedItemList.Count);
 
-                        if (StackAmountImageREF.GetComponentInChildren<Text>().text == EquipWeapon.WeaponList[i].WeaponName
-                         && EquipWeapon.WeaponList[i].IsASecondaryWeapon == 1 && PreviousButtonLocation.GetComponentInChildren<Text>().text == "0") // weapon that is stackable and wearable and stacks = 0
-                        {
-                            SwitchWeapons.DropObject(InventoryManage[i].CurrentInventorySlot);
-                        }
-
-                        if (InventoryManage[i].isASecondary == 1 && InventoryManage[i].CurrentInventorySlot != -1)
-                        {
-                            skillbarGUI.CheckAllUpdateStacksFromCraftingWindow(InventoryManage[i].SlotName, InventoryManage[i].StackAmounts - int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text));
-                        }
+                        //if (StackAmountImageREF.GetComponentInChildren<Text>().text == EquipWeapon.WeaponList[i].WeaponName
+                        //    && EquipWeapon.WeaponList[i].IsASecondaryWeapon == 1 && PreviousButtonLocation.GetComponentInChildren<Text>().text == "0") // weapon that is stackable and wearable and stacks = 0
+                        //{
+                        //    SwitchWeapons.DropObject(InventoryManage[i].CurrentInventorySlot);
+                        //}
 
                         RecalculateStackAmounts(i, int.Parse(StackAmountImageREF.GetComponentInChildren<InputField>().GetComponentInChildren<Text>().text));
 
@@ -305,18 +306,16 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
             if (InventoryManage[i].CurrentInventorySlot == int.Parse(PreviousButtonLocation.name) &&
                 InventoryManage[i].isASecondary == 1)
             {
-                Image DropAmountImageRef = Instantiate(DropAmountImage, transform.position, transform.rotation) as Image;
+                Image DropAmountImageRef = Instantiate(DropAmountImage, new Vector2(0,0), transform.rotation) as Image;
                 DropAmountImageRef.transform.SetParent(terrain.canvas.transform);
                 DropAmountImageRef.transform.localScale = new Vector3(1, 1, 1);
+                DropAmountImageRef.GetComponent<RectTransform>().localPosition = new Vector2(0,0);
                 DropAmountImageRef.transform.Find("Image").Find("ImageSprite").GetComponent<Image>().sprite = InventoryManage[i].tSprite;
                 DropAmountImageRef.GetComponentInChildren<Button>().onClick.AddListener(() => DropStackAmounts(DropAmountImageRef, PreviousButtonLocation));
             }
-        }
 
-        for (int i = 0; i < InventoryManage.Count; i++)
-        {
-            if (InventoryManage[i].CurrentInventorySlot == int.Parse(PreviousButtonLocation.name)
-                && InventoryManage[i].isASecondary == 0) // for weapons that are primary 
+            else if (InventoryManage[i].CurrentInventorySlot == int.Parse(PreviousButtonLocation.name)
+                && InventoryManage[i].isASecondary == 0) // for weapons/armors that are primary 
             {
                 if (InventoryManage[i].CurrentInventorySlot == SwitchWeapons.CurrentWeaponItemSlot)
                 {
@@ -324,11 +323,11 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
                     SwitchWeapons.DropObject(InventoryManage[i].CurrentInventorySlot);
                     SwitchWeapons.DestroyObject(SwitchWeapons.CurrentProjectileObject, 1);
                 }
-                else if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentArmorIteration ||
-                    InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentHelmetIteration || InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentLegsIteration)
+                else if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentChestplateIteration ||
+                    InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentHelmetIteration || InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentLegsIteration) // armor 
                 {
-                    if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentArmorIteration)
-                    InventoryButtonRects[SwitchArmor.CurrentArmorIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
+                    if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentChestplateIteration)
+                    InventoryButtonRects[SwitchArmor.CurrentChestplateIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
                     else if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentHelmetIteration)
                         InventoryButtonRects[SwitchArmor.CurrentHelmetIteration].transform.GetComponent<Image>().color = new Color(1, 1, 1, 0.66f);
                     else if (InventoryManage[i].CurrentInventorySlot == SwitchArmor.CurrentLegsIteration)
@@ -340,6 +339,27 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
                 GameObject Item = PhotonNetwork.Instantiate(InventoryManage[i].SlotName, terrain.Player.transform.position + new Vector3(0, 2, 0) + terrain.Player.transform.forward, terrain.Player.transform.rotation, 0)
                     as GameObject;
                 terrain.canvas.GetPhotonView().RPC("AddandRemoveDropList", PhotonTargets.AllBufferedViaServer, InventoryManage[i].SlotName, InventoryManage[i].Rarity, Item.GetPhotonView().viewID, InventoryManage[i].DamageOrValue, InventoryManage[i].WeaponAttackSpeed, InventoryManage[i].CritRate, InventoryManage[i].ArmorPenetration, InventoryManage[i].Defense, InventoryManage[i].Health, InventoryManage[i].Stamina, -1, 1, 0, 1, DroppedItemList.Count);
+
+                if (Item.GetComponentInChildren<SkinnedMeshRenderer>())
+                    Item.GetComponentInChildren<SkinnedMeshRenderer>().material = new Material(Item.GetComponentInChildren<SkinnedMeshRenderer>().material); // create new instance for material seperate from rocks/trees
+                else
+                    Item.GetComponentInChildren<MeshRenderer>().material = new Material(Item.GetComponentInChildren<MeshRenderer>().material); // create new instance for material seperate from rocks/trees
+
+                Color color = Color.white;
+
+                if (InventoryManage[i].Rarity == "Rare")
+                    color = Color.blue;
+                if (InventoryManage[i].Rarity == "Epic")
+                    color = Color.magenta;
+                if (InventoryManage[i].Rarity == "Unique")
+                    color = Color.red;
+                if (InventoryManage[i].Rarity == "Legendary")
+                    color = Color.green;
+                if (InventoryManage[i].Rarity == "Mythic")
+                    color = Color.cyan;
+
+                SwitchArmor.gameObject.GetPhotonView().RPC("MultiplayerGlow", PhotonTargets.AllBufferedViaServer, Item.GetPhotonView().viewID, color.r, color.g, color.b);
+
                 InventoryManage.RemoveAt(i); // remove from inventorymanage and add to droplist
                 PreviousButtonLocation.transform.Find("ImageScript").GetComponent<Image>().sprite = DefaultSprite;
                 PreviousButtonLocation.transform.GetComponentInChildren<Mask>().showMaskGraphic = false;
@@ -349,24 +369,16 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
 
     void TestingPurposes()
     {
-        if (terrain.IsThisALoadedGame == false)
-        {
+        //if (terrain.IsThisALoadedCharacterGame == false)
+        //{
             InventoryManager pick = new InventoryManager(ToolItems.ToolList[0].ToolName, "Common", ToolItems.ToolSprites[0], null,
      0, 0, 0, 0, 0, 0, 0, 0, -1, 0);
+
             InventoryManager axe = new InventoryManager(ToolItems.ToolList[1].ToolName, "Common", ToolItems.ToolSprites[1], null,
                  0, 0, 0, 0, 0, 0, 0, 1, -1, 0);
-            InventoryManager chakgaunt = new InventoryManager(EquipWeapon.WeaponList[0].WeaponName, "Common", EquipWeapon.WeaponSprites[0], null,
+            InventoryManager staff = new InventoryManager(EquipWeapon.WeaponList[0].WeaponName, "Common", EquipWeapon.WeaponSprites[0], null,
                 EquipWeapon.WeaponList[0].WeaponDamage, EquipWeapon.WeaponList[0].WeaponAttackSpeed,
-                EquipWeapon.WeaponList[0].CritRate, EquipWeapon.WeaponList[0].ArmorPenetration, 0, 0, 0, 2, -1, 0);
-            InventoryManager chak = new InventoryManager(EquipWeapon.WeaponList[9].WeaponName, "Common", EquipWeapon.WeaponSprites[9], null,
-                EquipWeapon.WeaponList[9].WeaponDamage, EquipWeapon.WeaponList[9].WeaponAttackSpeed,
-                EquipWeapon.WeaponList[9].CritRate, EquipWeapon.WeaponList[9].ArmorPenetration, 0, 0, 0, 3, 50, 1);
-            InventoryManager bow = new InventoryManager(EquipWeapon.WeaponList[18].WeaponName, "Common", EquipWeapon.WeaponSprites[18], null,
-                EquipWeapon.WeaponList[18].WeaponDamage, EquipWeapon.WeaponList[18].WeaponAttackSpeed,
-                EquipWeapon.WeaponList[18].CritRate, EquipWeapon.WeaponList[18].ArmorPenetration, 0, 0, 0, 4, -1, 0);
-            InventoryManager staff = new InventoryManager(EquipWeapon.WeaponList[27].WeaponName, "Common", EquipWeapon.WeaponSprites[27], null,
-                EquipWeapon.WeaponList[27].WeaponDamage, EquipWeapon.WeaponList[27].WeaponAttackSpeed,
-                EquipWeapon.WeaponList[27].CritRate, EquipWeapon.WeaponList[27].ArmorPenetration, 0, 0, 0, 5, -1, 0);
+                EquipWeapon.WeaponList[0].CritRate, EquipWeapon.WeaponList[0].ArmorPenetration, 0, 0, 0, 5, -1, 0);
             InventoryManager misc4 = new InventoryManager(MiscItems.Miscellaneousitems[1].MiscellaneousItemName, "Common", MiscItems.MiscellaneousSprites[1], null,
                 0, 0, 0, 0, 0, 0, 0, 6, 50, 1);
             InventoryManager misc1 = new InventoryManager(MiscItems.Miscellaneousitems[19].MiscellaneousItemName, "Common", MiscItems.MiscellaneousSprites[19], null,
@@ -381,22 +393,15 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
                 0, 0, 0, 0, 0, 0, 0, 6, 50, 1);
             InventoryManager misc7 = new InventoryManager(MiscItems.Miscellaneousitems[0].MiscellaneousItemName, "Common", MiscItems.MiscellaneousSprites[0], null,
                 0, 0, 0, 0, 0, 0, 0, 6, 50, 1);
-            InventoryManager misc8 = new InventoryManager(MiscItems.Miscellaneousitems[38].MiscellaneousItemName, "Common", MiscItems.MiscellaneousSprites[38], null,
-                0, 0, 0, 0, 0, 0, 0, 6, 50, 1);
-            InventoryManager chest = new InventoryManager(EquipArmor.ArmorList[EquipArmor.MetalHelmetEndLength].ArmorName, "Common", EquipArmor.ArmorSprites[0], null,
-                0, 0, 0, 0, EquipArmor.ArmorList[EquipArmor.MetalHelmetEndLength].DefenseValues, EquipArmor.ArmorList[EquipArmor.MetalHelmetEndLength].BonusHealth, EquipArmor.ArmorList[EquipArmor.MetalHelmetEndLength].BonusStamina, 1, -1, 0);
-            InventoryManager helm = new InventoryManager(EquipArmor.ArmorList[0].ArmorName, "Common", EquipArmor.ArmorSprites[1], null,
-                0, 0, 0, 0, EquipArmor.ArmorList[0].DefenseValues, EquipArmor.ArmorList[0].BonusHealth, EquipArmor.ArmorList[0].BonusStamina, 1, -1, 0);
-            InventoryManager legs = new InventoryManager(EquipArmor.ArmorList[EquipArmor.MetalChestEndLength].ArmorName, "Common", EquipArmor.ArmorSprites[2], null,
-                0, 0, 0, 0, EquipArmor.ArmorList[EquipArmor.MetalChestEndLength].DefenseValues, EquipArmor.ArmorList[EquipArmor.MetalChestEndLength].BonusHealth, EquipArmor.ArmorList[EquipArmor.MetalChestEndLength].BonusStamina, 1, -1, 0);
             InventoryManager pot = new InventoryManager(Potions.PotionList[0].PotionName, "Common", Potions.PotionSprites[0], null,
         Potions.PotionList[0].PotionValue, 0, 0, 0, 0, 0, 0, 1, 200, 1);
+            InventoryManager helm2 = new InventoryManager(EquipArmor.ArmorList[0].ArmorName, "Common", EquipArmor.ArmorSprites[0], null,
+    0, 0, 0, 0, EquipArmor.ArmorList[0].DefenseValues, EquipArmor.ArmorList[0].BonusHealth, EquipArmor.ArmorList[0].BonusStamina, 1, -1, 0);
+            InventoryManager robe = new InventoryManager(EquipArmor.ArmorList[9].ArmorName, "Common", EquipArmor.ArmorSprites[9], null,
+0, 0, 0, 0, EquipArmor.ArmorList[9].DefenseValues, EquipArmor.ArmorList[9].BonusHealth, EquipArmor.ArmorList[9].BonusStamina, 1, -1, 0);
 
             AddToInventory(pick);
             AddToInventory(axe);
-            AddToInventory(chakgaunt);
-            AddToInventory(chak);
-            AddToInventory(bow);
             AddToInventory(staff);
             AddToInventory(misc1);
             AddToInventory(misc2);
@@ -405,18 +410,41 @@ public class CharacterInventoryGUI : Photon.MonoBehaviour, IPointerDownHandler
             AddToInventory(misc5);
             AddToInventory(misc6);
             AddToInventory(misc7);
-            AddToInventory(misc8);
-            AddToInventory(chest);
-            AddToInventory(helm);
-            AddToInventory(legs);
+            AddToInventory(robe);
+            AddToInventory(helm2);
             AddToInventory(pot);
-        }
+            InventoryManager craftingbox = new InventoryManager(ToolItems.ToolList[18].ToolName, "Common", ToolItems.ToolSprites[18], null,
+0, 0, 0, 0, 0, 0, 0, 0, -1, 0);
+            AddToInventory(craftingbox);
+
+            InventoryManager misc15 = new InventoryManager(MiscItems.Miscellaneousitems[37].MiscellaneousItemName, "Rare", MiscItems.MiscellaneousSprites[37], null,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        AddToInventory(misc15);
+        InventoryManager misc18 = new InventoryManager(MiscItems.Miscellaneousitems[37].MiscellaneousItemName, "Rare", MiscItems.MiscellaneousSprites[37], null,
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        AddToInventory(misc18);
+            InventoryManager misc16 = new InventoryManager(MiscItems.Miscellaneousitems[38].MiscellaneousItemName, "Epic", MiscItems.MiscellaneousSprites[38], null,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            AddToInventory(misc16);
+            InventoryManager misc17 = new InventoryManager(MiscItems.Miscellaneousitems[39].MiscellaneousItemName, "Unique", MiscItems.MiscellaneousSprites[39], null,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            AddToInventory(misc17);
+            InventoryManager staff1 = new InventoryManager(EquipWeapon.WeaponList[0].WeaponName, "Common", EquipWeapon.WeaponSprites[0], null,
+        EquipWeapon.WeaponList[0].WeaponDamage, EquipWeapon.WeaponList[0].WeaponAttackSpeed,
+        EquipWeapon.WeaponList[0].CritRate, EquipWeapon.WeaponList[0].ArmorPenetration, 0, 0, 0, 5, -1, 0);
+            AddToInventory(staff1);
+            InventoryManager staff2 = new InventoryManager(EquipWeapon.WeaponList[0].WeaponName, "Common", EquipWeapon.WeaponSprites[0], null,
+    EquipWeapon.WeaponList[0].WeaponDamage, EquipWeapon.WeaponList[0].WeaponAttackSpeed,
+    EquipWeapon.WeaponList[0].CritRate, EquipWeapon.WeaponList[0].ArmorPenetration, 0, 0, 0, 5, -1, 0);
+            AddToInventory(staff2);
+        //}
     }
 
     void Start()
     {
         terrain = GameObject.FindWithTag("MainEnvironment").GetComponentInChildren<TerrainScript>();
         InventoryManage = new List<InventoryManager>();
+        Debug.Log("inv spawned");
         DroppedItemList = new List<InventoryManager>();
 
         EquipWeapon = terrain.Player.GetComponentInChildren<WeaponsDatabase>();

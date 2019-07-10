@@ -29,15 +29,19 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
     MainGUI mainGui;
     public MainMenu mainmenuCanvas;
 
-    public UserData MyData;
+    public TerrainUserData MyTerrainData;
+    public CharacterUserData MyCharacterData;
 
-    string FileLocation;
-    public string FileName;
+    public string CharacterFileLocation;
+    public string TerrainFileLocation;
+    public string CharacterFileName;
+    public string TerrainFileName;
 
     string data;
 
     public Image ListofSavedGamesImage;
     public List<Button> ListofSaveButtons;
+    int AutoSaveIndex; 
     public Text CurrentSaveSelectedButton; 
     public string CurrentSaveSelectedButtonText; // for loading into level from menu
     public InputField InputSaveImage;
@@ -109,25 +113,44 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
 
     public void LoadThis() // problem == only 1 player has control of this and its set to inactive == no rpc recieved, put saveandloadgui script in canvas, mainmenu, same with options
     {
-        CurrentSaveSelectedButtonText = PlayerPrefs.GetString("LoadSave");
+        CurrentSaveSelectedButtonText = PlayerPrefs.GetString("LoadSave"); // playerprefs setstring in mainmenu
 
-        if (SceneManager.GetActiveScene().buildIndex != 0 && CurrentSaveSelectedButtonText != string.Empty)
+        CharacterFileName = "Default.dat";
+        TerrainFileName = "Default.dat";
+        TerrainFileLocation = Application.dataPath + "\\" + "TerrainSaveData";
+        CharacterFileLocation = Application.dataPath + "\\" + "CharacterSaveData";
+
+        monsterSpawn = GameObject.FindWithTag("MainEnvironment").GetComponent<MonsterSpawn>();
+        monsterFunction = GameObject.FindWithTag("MainEnvironment").GetComponent<MonsterFunctions>();
+        terrainState = GameObject.FindWithTag("MainEnvironment").GetComponent<TerrainScript>();
+        mainGui = terrainState.canvas.GetComponent<MainGUI>();
+        switchWeapons = terrainState.Player.GetComponentInChildren<WeaponSwitch>();
+        switchArmors = terrainState.Player.GetComponentInChildren<ArmorSwitch>();
+        Stats = terrainState.Player.GetComponent<CharacterStats>();
+        CraftingDB = terrainState.Player.GetComponent<CraftingSkillDatabase>();
+        GatheringDB = terrainState.Player.GetComponent<GatheringSkillDatabase>();
+        GeneralDB = terrainState.Player.GetComponent<GeneralSkillsDatabase>();
+
+        if (SceneManager.GetActiveScene().buildIndex != 0)
         {
-            FileName = "Default.dat";
-            FileLocation = Application.dataPath + "\\" + "SaveData";
-            monsterSpawn = GameObject.FindWithTag("MainEnvironment").GetComponent<MonsterSpawn>();
-            monsterFunction = GameObject.FindWithTag("MainEnvironment").GetComponent<MonsterFunctions>();
-            terrainState = GameObject.FindWithTag("MainEnvironment").GetComponent<TerrainScript>();
-            mainGui = terrainState.canvas.GetComponent<MainGUI>();
-            switchWeapons = terrainState.Player.GetComponentInChildren<WeaponSwitch>();
-            switchArmors = terrainState.Player.GetComponentInChildren<ArmorSwitch>();
-            Stats = terrainState.Player.GetComponent<CharacterStats>();
-            CraftingDB = terrainState.Player.GetComponent<CraftingSkillDatabase>();
-            GatheringDB = terrainState.Player.GetComponent<GatheringSkillDatabase>();
-            GeneralDB = terrainState.Player.GetComponent<GeneralSkillsDatabase>();
-            terrainState.IsThisALoadedGame = true;
+            LoadXML(PlayerPrefs.GetString("PlayerName"), "Character", CharacterFileLocation); // if player is new then currentsavetext == empty
 
-            StartCoroutine("WaitLoadDataFunction");
+            if (MyCharacterData.ThisCharacterData.PlayerName != string.Empty &&
+               MyCharacterData.ThisCharacterData.PlayerName != null)
+            {
+                Debug.Log(MyCharacterData.ThisCharacterData.PlayerName);
+                terrainState.IsThisALoadedCharacterGame = true;
+            }
+            else
+            {
+                terrainState.IsThisALoadedCharacterGame = false;
+                Stats.PlayerName = PlayerPrefs.GetString("PlayerName").Substring(0, PlayerPrefs.GetString("PlayerName").IndexOf(' '));
+            }
+
+            if (CurrentSaveSelectedButtonText != string.Empty)
+                terrainState.IsThisALoadedTerrainGame = true;
+
+            StartCoroutine("WaitLoadDataFunction"); // disabled for testing
         }
     }
 
@@ -135,57 +158,62 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
     {
         yield return new WaitForSeconds(0.5f);
 
-        LoadDataFunction();
+        if (terrainState.ListofWaters.Count < 98) // wait until stuff is all loaded
+            StartCoroutine("WaitLoadDataFunction");
+        else
+            LoadDataFunction();
     }
 
     void SaveDataFunction()
     {
-        if (ListofSaveButtons.Count >= 8) // out of space
-            return;
-
         if (PhotonNetwork.isMasterClient)
-            mainGui.photonView.RPC("SaveMultiplayer", PhotonTargets.All, FileName);
-        else
-            mainGui.SaveMultiplayer(FileName);
+        {
+            mainGui.photonView.RPC("SaveMultiplayer", PhotonTargets.All, TerrainFileName, "Manual");
+        }
     }
 
-    
+    void AutoSaveDataFunction() // only autosave at start, and when a person goes out of range/terrain  
+    {
+        if (PhotonNetwork.isMasterClient)
+        {
+            mainGui.photonView.RPC("SaveMultiplayer", PhotonTargets.All, TerrainFileName, "Auto");
+        }
+    }
 
     public void LoadDataFunction() // still need to save weaponswitch, inventorymanage, weapons, skill,skillpts, skillbar, 
     {
-        if (CurrentSaveSelectedButtonText == string.Empty)
-            return;
-
-        LoadXML(CurrentSaveSelectedButtonText); // if player is new then currentsavetext == empty
-
         if (Application.loadedLevelName == "MainMenu" &&
             PhotonNetwork.playerList.Length >= 2 && PhotonNetwork.isMasterClient) // make list of saves on main menu, and rpc that load to all players, also, when saving a game, rpc, 
         {
             this.transform.SetParent(null);
-            mainmenuCanvas.MultiPlayerLoad();
+            mainmenuCanvas.LoadGame(1);
         }
         else if (Application.loadedLevelName == "MainMenu" &&
                     PhotonNetwork.playerList.Length == 1)
         {
             this.transform.SetParent(null);
-            mainmenuCanvas.SinglePlayerLoad(MyData.ThisPlayer.CurrentTerrainLevel);
+            mainmenuCanvas.LoadGame(MyTerrainData.ThisTerrainData.CurrentTerrainLevel);
         }
 
-        //MyData = (UserData)DeserializeObject(data); // reference type userdata for correct types, xml
-        if  (Application.loadedLevelName != "MainMenu" && CurrentSaveSelectedButtonText != string.Empty) // if new player and new save, skip this
+        //MyTerrainData = (UserData)DeserializeObject(data); // reference type userdata for correct types, xml
+        //Debug.Log(MyCharacterData.ThisCharacterData.PlayerName);
+
+        if (Application.loadedLevelName != "MainMenu" && terrainState.IsThisALoadedCharacterGame == true) // characters
         {
-            Stats.transform.position = MyData.ThisPlayer.PlayerPosition;
-            terrainState.MasterPosition = MyData.ThisPlayer.MasterPlayerPosition;
-            Stats.transform.rotation = MyData.ThisPlayer.PlayerRotation;
-            Stats.PlayerLevel = MyData.ThisPlayer.PlayerLevel;
-            Stats.PlayerHealth = MyData.ThisPlayer.PlayerHealth;
-            Stats.CurrentPlayerHealth = MyData.ThisPlayer.CurrentPlayerHealth;
-            Stats.PlayerStamina = MyData.ThisPlayer.PlayerStamina;
-            Stats.CurrentPlayerStamina = MyData.ThisPlayer.CurrentPlayerStamina;
-            Stats.PlayerExperience = MyData.ThisPlayer.PlayerExperience;
-            Stats.ExpRequired = MyData.ThisPlayer.ExpRequired;
-            Stats.SkillPoints = MyData.ThisPlayer.SkillPoints;
-            terrainState.CurrentTerrainLevel = MyData.ThisPlayer.CurrentTerrainLevel;
+            Stats.PlayerName = MyCharacterData.ThisCharacterData.PlayerName;          
+            //Stats.transform.position = MyCharacterData.ThisCharacterData.PlayerPosition; // only keep master position because if new game then it spawns below level.
+            //Stats.transform.rotation = MyCharacterData.ThisCharacterData.PlayerRotation;
+            Stats.PlayerLevel = MyCharacterData.ThisCharacterData.PlayerLevel;
+            Stats.PlayerHealth = MyCharacterData.ThisCharacterData.PlayerHealth;
+            Stats.CurrentPlayerHealth = MyCharacterData.ThisCharacterData.CurrentPlayerHealth;
+            Stats.PlayerStamina = MyCharacterData.ThisCharacterData.PlayerStamina;
+            Stats.CurrentPlayerStamina = MyCharacterData.ThisCharacterData.CurrentPlayerStamina;
+            Stats.PlayerExperience = MyCharacterData.ThisCharacterData.PlayerExperience;
+            Stats.ExpRequired = MyCharacterData.ThisCharacterData.ExpRequired;
+            Stats.SkillPoints = MyCharacterData.ThisCharacterData.SkillPoints;
+            Stats.CurrentHunger = MyCharacterData.ThisCharacterData.CurrentHunger;
+            Stats.CurrentThirst = MyCharacterData.ThisCharacterData.CurrentThirst;
+
             //optionGUI = terrainState.canvas.GetComponentInChildren<CharacterOptionsGUI>();
             //if (optionGUI.SaveAndLoadGameObject != null)
             //    Destroy(optionGUI.SaveAndLoadGameObject);
@@ -193,26 +221,26 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
 
             for (int i = 0; i < GatheringDB.GatheringSkillList.Count; i++)
             {
-                GatheringDB.GatheringSkillList[i].CurrentRank = MyData.ThisPlayer.GatheringCurrentRank[i];
-                GatheringDB.GatheringSkillList[i].CurrentExp = MyData.ThisPlayer.GatheringCurrentExp[i];
-                GatheringDB.GatheringSkillList[i].MaxExp = MyData.ThisPlayer.GatheringMaxExp[i];
+                GatheringDB.GatheringSkillList[i].CurrentRank = MyCharacterData.ThisCharacterData.GatheringCurrentRank[i];
+                GatheringDB.GatheringSkillList[i].CurrentExp = MyCharacterData.ThisCharacterData.GatheringCurrentExp[i];
+                GatheringDB.GatheringSkillList[i].MaxExp = MyCharacterData.ThisCharacterData.GatheringMaxExp[i];
             }
 
             for (int i = 0; i < CraftingDB.CraftingSkillList.Count; i++)
             {
-                CraftingDB.CraftingSkillList[i].CurrentRank = MyData.ThisPlayer.CraftingCurrentRank[i];
-                CraftingDB.CraftingSkillList[i].CurrentExp = MyData.ThisPlayer.CraftingCurrentExp[i];
-                CraftingDB.CraftingSkillList[i].MaxExp = MyData.ThisPlayer.CraftingMaxExp[i];
+                CraftingDB.CraftingSkillList[i].CurrentRank = MyCharacterData.ThisCharacterData.CraftingCurrentRank[i];
+                CraftingDB.CraftingSkillList[i].CurrentExp = MyCharacterData.ThisCharacterData.CraftingCurrentExp[i];
+                CraftingDB.CraftingSkillList[i].MaxExp = MyCharacterData.ThisCharacterData.CraftingMaxExp[i];
             }
 
             for (int i = 0; i < GeneralDB.GeneralSkillList.Count; i++)
             {
-                GeneralDB.GeneralSkillList[i].CoolDown = MyData.ThisPlayer.GeneralCD[i];
-                GeneralDB.GeneralSkillList[i].Duration = MyData.ThisPlayer.GeneralDur[i]; 
-                GeneralDB.GeneralSkillList[i].LevelRank = MyData.ThisPlayer.GeneralkillLevelRank[i];
-                GeneralDB.GeneralSkillList[i].SkillChance = MyData.ThisPlayer.SkillChance[i];
-                GeneralDB.GeneralSkillList[i].SkillPointsRequired = MyData.ThisPlayer.GeneralSkillPointRequired[i]; 
-                GeneralDB.GeneralSkillList[i].SkillValue[0] = MyData.ThisPlayer.SkillValue[i];          
+                GeneralDB.GeneralSkillList[i].CoolDown = MyCharacterData.ThisCharacterData.GeneralCD[i];
+                GeneralDB.GeneralSkillList[i].Duration = MyCharacterData.ThisCharacterData.GeneralDur[i];
+                GeneralDB.GeneralSkillList[i].LevelRank = MyCharacterData.ThisCharacterData.GeneralkillLevelRank[i];
+                GeneralDB.GeneralSkillList[i].SkillChance = MyCharacterData.ThisCharacterData.SkillChance[i];
+                GeneralDB.GeneralSkillList[i].SkillPointsRequired = MyCharacterData.ThisCharacterData.GeneralSkillPointRequired[i];
+                GeneralDB.GeneralSkillList[i].SkillValue[0] = MyCharacterData.ThisCharacterData.SkillValue[i];
             }
 
             terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage = new List<InventoryManager>();
@@ -224,173 +252,184 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsStackText[i].text = string.Empty;
             }
 
-            for (int i = 0; i < MyData.ThisPlayer.SlotName.Length; i++) //stacks keeps updating from previous save?
+            for (int i = 0; i < MyCharacterData.ThisCharacterData.SlotName.Length; i++) //stacks keeps updating from previous save?
             {
-                InventoryManager invManage = new InventoryManager(MyData.ThisPlayer.SlotName[i], MyData.ThisPlayer.Rarity[i], Resources.Load<Sprite>(MyData.ThisPlayer.tSprite[i]), null, MyData.ThisPlayer.InvDamageOrValue[i], MyData.ThisPlayer.InvWeaponAttackSpeed[i], MyData.ThisPlayer.InvCritRate[i], MyData.ThisPlayer.InvArmorPen[i], MyData.ThisPlayer.InvDefense[i], MyData.ThisPlayer.InvHealth[i], MyData.ThisPlayer.InvStamina[i], MyData.ThisPlayer.CurrentInventorySlot[i], MyData.ThisPlayer.StackAmounts[i], MyData.ThisPlayer.isASecondary[i]);
+                InventoryManager invManage = new InventoryManager(MyCharacterData.ThisCharacterData.SlotName[i], MyCharacterData.ThisCharacterData.Rarity[i], Resources.Load<Sprite>(MyCharacterData.ThisCharacterData.tSprite[i]), null, MyCharacterData.ThisCharacterData.InvDamageOrValue[i], MyCharacterData.ThisCharacterData.InvWeaponAttackSpeed[i], MyCharacterData.ThisCharacterData.InvCritRate[i], MyCharacterData.ThisCharacterData.InvArmorPen[i], MyCharacterData.ThisCharacterData.InvDefense[i], MyCharacterData.ThisCharacterData.InvHealth[i], MyCharacterData.ThisCharacterData.InvStamina[i], MyCharacterData.ThisCharacterData.CurrentInventorySlot[i], MyCharacterData.ThisCharacterData.StackAmounts[i], MyCharacterData.ThisCharacterData.isASecondary[i]);
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage.Add(invManage);
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsIcons[terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].CurrentInventorySlot].sprite = terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].tSprite;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsIcons[terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].CurrentInventorySlot].sprite = invManage.tSprite;
                 if (terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].isASecondary == 1)
-                    terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsStackText[terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].CurrentInventorySlot].text = terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].StackAmounts.ToString();
+                    terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsStackText[terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].CurrentInventorySlot].text = invManage.StackAmounts.ToString();
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryButtonsIcons[terrainState.canvas.GetComponent<CharacterInventoryGUI>().InventoryManage[i].CurrentInventorySlot].GetComponent<Mask>().showMaskGraphic = true;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().FindNextSlot();
             }
 
-            if (MyData.ThisPlayer.CurrentSlotMainWeapon != -1)
+            if (MyCharacterData.ThisCharacterData.CurrentSlotMainWeapon != -1)
             {
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyData.ThisPlayer.CurrentSlotMainWeapon;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyCharacterData.ThisCharacterData.CurrentSlotMainWeapon;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetWeaponValues();
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetToolValues();
             }
-            if (MyData.ThisPlayer.CurrentSlotSecondaryWeapon != -1)
+            if (MyCharacterData.ThisCharacterData.CurrentSlotSecondaryWeapon != -1)
             {
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyData.ThisPlayer.CurrentSlotSecondaryWeapon;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyCharacterData.ThisCharacterData.CurrentSlotSecondaryWeapon;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetWeaponValues();
             }
-            if (MyData.ThisPlayer.CurrentSlotHead != -1)
+            if (MyCharacterData.ThisCharacterData.CurrentSlotHead != -1)
             {
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyData.ThisPlayer.CurrentSlotHead;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyCharacterData.ThisCharacterData.CurrentSlotHead;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetArmorValues();
             }
-            if (MyData.ThisPlayer.CurrentSlotArmor != -1)
+            if (MyCharacterData.ThisCharacterData.CurrentSlotArmor != -1)
             {
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyData.ThisPlayer.CurrentSlotArmor;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyCharacterData.ThisCharacterData.CurrentSlotArmor;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetArmorValues();
             }
-            if (MyData.ThisPlayer.CurrentSlotLegs != -1)
+            if (MyCharacterData.ThisCharacterData.CurrentSlotLegs != -1)
             {
-                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyData.ThisPlayer.CurrentSlotLegs;
+                terrainState.canvas.GetComponent<CharacterInventoryGUI>().CurrentInventoryItemSlot = MyCharacterData.ThisCharacterData.CurrentSlotLegs;
                 terrainState.canvas.GetComponent<CharacterInventoryGUI>().SetArmorValues();
             }
+            for (int i = 0; i < MyCharacterData.ThisCharacterData.TotalMiscStackAmounts.Length; i++)
+                terrainState.Player.GetComponent<MiscellaneousItemsDatabase>().TotalMiscellaneousStacks[i] = MyCharacterData.ThisCharacterData.TotalMiscStackAmounts[i];
+
+        }
+
+        if  (Application.loadedLevelName != "MainMenu" && CurrentSaveSelectedButtonText != string.Empty) // Terrain 
+        {
+            LoadXML(CurrentSaveSelectedButtonText, "Terrain", TerrainFileLocation); // if player is new then currentsavetext == empty
+            terrainState.CurrentTerrainLevel = MyTerrainData.ThisTerrainData.CurrentTerrainLevel;
 
             for (int i = 1; i < terrainState.ListofTrees.Count; i++)
             {
-                terrainState.ListofTrees[i].transform.position = MyData.ThisPlayer.TreePosition[i];
-                terrainState.ListofTrees[i].transform.rotation = MyData.ThisPlayer.TreeRotation[i];
+                terrainState.ListofTrees[i].transform.position = MyTerrainData.ThisTerrainData.TreePosition[i];
+                terrainState.ListofTrees[i].transform.rotation = MyTerrainData.ThisTerrainData.TreeRotation[i];
 
-                terrainState.ListofTrees[i].transform.localScale = MyData.ThisPlayer.TreeScale[i];
-                terrainState.ListofTrees[i].transform.GetComponent<Rigidbody>().mass = 3000 * MyData.ThisPlayer.TreeScale[i].x;
+                terrainState.ListofTrees[i].transform.localScale = MyTerrainData.ThisTerrainData.TreeScale[i];
+                terrainState.ListofTrees[i].transform.GetComponent<Rigidbody>().mass = 3000 * MyTerrainData.ThisTerrainData.TreeScale[i].x;
             }
 
             for (int i = 1; i < terrainState.ListofRocks.Count; i++)
             {
-                terrainState.ListofRocks[i].transform.position = MyData.ThisPlayer.RockPosition[i];
-                terrainState.ListofRocks[i].transform.rotation = MyData.ThisPlayer.RockRotation[i];
+                terrainState.ListofRocks[i].transform.position = MyTerrainData.ThisTerrainData.RockPosition[i];
+                terrainState.ListofRocks[i].transform.rotation = MyTerrainData.ThisTerrainData.RockRotation[i];
 
-                terrainState.ListofRocks[i].transform.localScale = MyData.ThisPlayer.RockScale[i];
-                terrainState.ListofRocks[i].transform.GetComponent<Rigidbody>().mass = 3000 * MyData.ThisPlayer.RockScale[i].x;
+                terrainState.ListofRocks[i].transform.localScale = MyTerrainData.ThisTerrainData.RockScale[i];
+                terrainState.ListofRocks[i].transform.GetComponent<Rigidbody>().mass = 3000 * MyTerrainData.ThisTerrainData.RockScale[i].x;
             }
 
             for (int i = 1; i < terrainState.ListofHerbPatches.Count; i++)
             {
-                terrainState.ListofHerbPatches[i].transform.position = MyData.ThisPlayer.HerbPatchPosition[i];
-                terrainState.ListofHerbPatches[i].transform.rotation = MyData.ThisPlayer.HerbPatchRotation[i];
-                terrainState.ListofHerbPatches[i].transform.localScale = MyData.ThisPlayer.HerbPatchScale[i];
+                terrainState.ListofHerbPatches[i].transform.position = MyTerrainData.ThisTerrainData.HerbPatchPosition[i];
+                terrainState.ListofHerbPatches[i].transform.rotation = MyTerrainData.ThisTerrainData.HerbPatchRotation[i];
+                terrainState.ListofHerbPatches[i].transform.localScale = MyTerrainData.ThisTerrainData.HerbPatchScale[i];
             }
 
             for (int i = 1; i < terrainState.ListofWaters.Count; i++)
             {
-                terrainState.ListofWaters[i].transform.position = MyData.ThisPlayer.WaterPosition[i];
-                terrainState.ListofWaters[i].transform.rotation = MyData.ThisPlayer.WaterRotation[i];
-                terrainState.ListofWaters[i].transform.localScale = MyData.ThisPlayer.WaterScale[i];
+                terrainState.ListofWaters[i].transform.position = MyTerrainData.ThisTerrainData.WaterPosition[i];
+                terrainState.ListofWaters[i].transform.rotation = MyTerrainData.ThisTerrainData.WaterRotation[i];
+                terrainState.ListofWaters[i].transform.localScale = MyTerrainData.ThisTerrainData.WaterScale[i];
             }
 
-            monsterSpawn.BossMonster.transform.position = MyData.ThisPlayer.BossMonsterSpawnLocation;
-            monsterSpawn.BossMonster.transform.rotation = MyData.ThisPlayer.BossMonsterSpawnRotation;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterHealth = MyData.ThisPlayer.BossMonsterHealth;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterHealthRandomModifier = MyData.ThisPlayer.BossMonsterHealthRandomModifier;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterDefense = MyData.ThisPlayer.BossMonsterDefense;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterDamage = MyData.ThisPlayer.BossMonsterDamage;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterExp = MyData.ThisPlayer.BossMonsterExperience;
-            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterLevel = MyData.ThisPlayer.BossMonsterLevel;
+            monsterSpawn.BossMonster.transform.position = MyTerrainData.ThisTerrainData.BossMonsterSpawnLocation;
+            monsterSpawn.BossMonster.transform.rotation = MyTerrainData.ThisTerrainData.BossMonsterSpawnRotation;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterHealth = MyTerrainData.ThisTerrainData.BossMonsterHealth;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterHealthRandomModifier = MyTerrainData.ThisTerrainData.BossMonsterHealthRandomModifier;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterDefense = MyTerrainData.ThisTerrainData.BossMonsterDefense;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterDamage = MyTerrainData.ThisTerrainData.BossMonsterDamage;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterExp = MyTerrainData.ThisTerrainData.BossMonsterExperience;
+            monsterSpawn.BossMonster.GetComponent<MonsterOnCollision>().MonsterLevel = MyTerrainData.ThisTerrainData.BossMonsterLevel;
 
             for (int i = 0; i < monsterSpawn.ListofMonsters.Count; i++)
             {
-                monsterSpawn.ListofMonsters[i].transform.position = MyData.ThisPlayer.MonsterSpawnLocations[i];
-                monsterSpawn.ListofMonsters[i].transform.rotation = MyData.ThisPlayer.MonsterSpawnRotations[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterMovement>().photonView.RPC("ChangeAppearanceDeath", PhotonTargets.All, MyData.ThisPlayer.MonsterMaterials[0 * i], MyData.ThisPlayer.MonsterMaterials[1 * i], MyData.ThisPlayer.MonsterMaterials[2 * i]);
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterHealth = MyData.ThisPlayer.MonsterHealth[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterHealthRandomModifier = MyData.ThisPlayer.MonsterHealthRandomModifier[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterDefense = MyData.ThisPlayer.MonsterDefense[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterDamage = MyData.ThisPlayer.MonsterDamage[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterExp = MyData.ThisPlayer.MonsterExperience[i];
-                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterLevel = MyData.ThisPlayer.MonsterLevel[i];
+                monsterSpawn.ListofMonsters[i].transform.position = MyTerrainData.ThisTerrainData.MonsterSpawnLocations[i];
+                monsterSpawn.ListofMonsters[i].transform.rotation = MyTerrainData.ThisTerrainData.MonsterSpawnRotations[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterMovement>().photonView.RPC("ChangeAppearanceDeath", PhotonTargets.All, MyTerrainData.ThisTerrainData.MonsterMaterials[0 * i], MyTerrainData.ThisTerrainData.MonsterMaterials[1 * i], MyTerrainData.ThisTerrainData.MonsterMaterials[2 * i]);
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterHealth = MyTerrainData.ThisTerrainData.MonsterHealth[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterHealthRandomModifier = MyTerrainData.ThisTerrainData.MonsterHealthRandomModifier[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterDefense = MyTerrainData.ThisTerrainData.MonsterDefense[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterDamage = MyTerrainData.ThisTerrainData.MonsterDamage[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterExp = MyTerrainData.ThisTerrainData.MonsterExperience[i];
+                monsterSpawn.ListofMonsters[i].GetComponent<MonsterOnCollision>().MonsterLevel = MyTerrainData.ThisTerrainData.MonsterLevel[i];
             }
 
-            terrainState.terrainMap = terrainState.terrain.terrainData.GetHeights(0, 0, terrainState.terrain.terrainData.heightmapWidth, terrainState.terrain.terrainData.heightmapHeight);
-            terrainState.MiddleAlpha = terrainState.terrain.terrainData.GetAlphamaps(0, 0, terrainState.terrain.terrainData.alphamapWidth, terrainState.terrain.terrainData.alphamapHeight);
-            terrainState.detailLayer1 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 0);
-            terrainState.detailLayer2 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 1);
-            terrainState.detailLayer3 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 2);
-            terrainState.detailLayer4 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 3);
-            terrainState.detailLayer5 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 4);
-            terrainState.detailLayer6 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 5);
-            terrainState.detailLayer7 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 6);
-            terrainState.detailLayer8 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 7);
+            //terrainState.terrainMap = terrainState.terrain.terrainData.GetHeights(0, 0, terrainState.terrain.terrainData.heightmapWidth, terrainState.terrain.terrainData.heightmapHeight);
+            //terrainState.MiddleAlpha = terrainState.terrain.terrainData.GetAlphamaps(0, 0, terrainState.terrain.terrainData.alphamapWidth, terrainState.terrain.terrainData.alphamapHeight);
+            //terrainState.detailLayer1 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 0);
+            //terrainState.detailLayer2 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 1);
+            //terrainState.detailLayer3 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 2);
+            //terrainState.detailLayer4 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 3);
+            //terrainState.detailLayer5 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 4);
+            //terrainState.detailLayer6 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 5);
+            //terrainState.detailLayer7 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 6);
+            ////terrainState.detailLayer8 = terrainState.terrain.terrainData.GetDetailLayer(0, 0, terrainState.terrain.terrainData.detailWidth, terrainState.terrain.terrainData.detailHeight, 7);
 
-            for (int i = 0; i < terrainState.terrain.terrainData.heightmapHeight; i++)
+            //for (int i = 0; i < terrainState.terrain.terrainData.heightmapHeight; i++)
+            //{
+            //    for (int j = 0; j < terrainState.terrain.terrainData.heightmapWidth; j++)
+            //    {
+            //        terrainState.terrainMap[i, j] = MyTerrainData.ThisTerrainData.terrainMap[i * terrainState.terrain.terrainData.heightmapWidth + j];
+            //    }
+            //}
+
+            //for (int i = 0; i < terrainState.terrain.terrainData.detailHeight; i++)
+            //{
+            //    for (int j = 0; j < terrainState.terrain.terrainData.detailWidth; j++)
+            //    {
+            //        terrainState.detailLayer1[i, j] = MyTerrainData.ThisTerrainData.detailLayer1[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer2[i, j] = MyTerrainData.ThisTerrainData.detailLayer2[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer3[i, j] = MyTerrainData.ThisTerrainData.detailLayer3[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer4[i, j] = MyTerrainData.ThisTerrainData.detailLayer4[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer5[i, j] = MyTerrainData.ThisTerrainData.detailLayer5[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer6[i, j] = MyTerrainData.ThisTerrainData.detailLayer6[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer7[i, j] = MyTerrainData.ThisTerrainData.detailLayer7[i * terrainState.terrain.terrainData.detailWidth + j];
+            //        terrainState.detailLayer8[i, j] = MyTerrainData.ThisTerrainData.detailLayer8[i * terrainState.terrain.terrainData.detailWidth + j];
+            //    }
+            //}
+
+            //for (int i = 0; i < terrainState.terrain.terrainData.alphamapHeight; i++)
+            //{
+            //    for (int j = 0; j < terrainState.terrain.terrainData.alphamapWidth; j++)
+            //    {
+            //        for (int k = 0; k < 2; k++)
+            //        {
+            //            terrainState.MiddleAlpha[i, j, k] = MyTerrainData.ThisTerrainData.MiddleAlpha[i + terrainState.terrain.terrainData.alphamapHeight * (j + terrainState.terrain.terrainData.alphamapWidth * k)];
+            //        }
+            //    }
+            //}
+
+            //terrainState.terrain.terrainData.SetAlphamaps(0, 0, terrainState.MiddleAlpha);
+            //terrainState.terrain.terrainData.SetHeights(0, 0, terrainState.terrainMap);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 0, terrainState.detailLayer1);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 1, terrainState.detailLayer2);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 2, terrainState.detailLayer3);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 3, terrainState.detailLayer4);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 4, terrainState.detailLayer5);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 5, terrainState.detailLayer6);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 6, terrainState.detailLayer7);
+            //terrainState.terrain.terrainData.SetDetailLayer(0, 0, 7, terrainState.detailLayer8);
+
+            terrainState.gainX = MyTerrainData.ThisTerrainData.gainX;
+            terrainState.gainY = MyTerrainData.ThisTerrainData.gainY;
+            terrainState.gainXX = MyTerrainData.ThisTerrainData.gainXX;
+            terrainState.gainYY = MyTerrainData.ThisTerrainData.gainYY;
+
+            for (int i = 0; i < MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredIDs.Length; i++)
             {
-                for (int j = 0; j < terrainState.terrain.terrainData.heightmapWidth; j++)
-                {
-                    terrainState.terrainMap[i, j] = MyData.ThisPlayer.terrainMap[i * terrainState.terrain.terrainData.heightmapWidth + j];
-                }
-            }
-
-            for (int i = 0; i < terrainState.terrain.terrainData.detailHeight; i++)
-            {
-                for (int j = 0; j < terrainState.terrain.terrainData.detailWidth; j++)
-                {
-                    terrainState.detailLayer1[i, j] = MyData.ThisPlayer.detailLayer1[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer2[i, j] = MyData.ThisPlayer.detailLayer2[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer3[i, j] = MyData.ThisPlayer.detailLayer3[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer4[i, j] = MyData.ThisPlayer.detailLayer4[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer5[i, j] = MyData.ThisPlayer.detailLayer5[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer6[i, j] = MyData.ThisPlayer.detailLayer6[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer7[i, j] = MyData.ThisPlayer.detailLayer7[i * terrainState.terrain.terrainData.detailWidth + j];
-                    terrainState.detailLayer8[i, j] = MyData.ThisPlayer.detailLayer8[i * terrainState.terrain.terrainData.detailWidth + j];
-                }
-            }
-
-            for (int i = 0; i < terrainState.terrain.terrainData.alphamapHeight; i++)
-            {
-                for (int j = 0; j < terrainState.terrain.terrainData.alphamapWidth; j++)
-                {
-                    for (int k = 0; k < 2; k++)
-                    {
-                        terrainState.MiddleAlpha[i, j, k] = MyData.ThisPlayer.MiddleAlpha[i + terrainState.terrain.terrainData.alphamapHeight * (j + terrainState.terrain.terrainData.alphamapWidth * k)];
-                    }
-                }
-            }
-
-            terrainState.terrain.terrainData.SetAlphamaps(0, 0, terrainState.MiddleAlpha);
-            terrainState.terrain.terrainData.SetHeights(0, 0, terrainState.terrainMap);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 0, terrainState.detailLayer1);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 1, terrainState.detailLayer2);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 2, terrainState.detailLayer3);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 3, terrainState.detailLayer4);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 4, terrainState.detailLayer5);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 5, terrainState.detailLayer6);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 6, terrainState.detailLayer7);
-            terrainState.terrain.terrainData.SetDetailLayer(0, 0, 7, terrainState.detailLayer8);
-
-            terrainState.gainX = MyData.ThisPlayer.gainX;
-            terrainState.gainY = MyData.ThisPlayer.gainY;
-
-            for (int i = 0; i < MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredIDs.Length; i++)
-            {
-                GameObject alteredID = PhotonView.Find(MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredIDs[i]).gameObject;
-                terrainState.ListofEnvironmentalObjectsAlteredPositions.Add(MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredPositions[i]);
-                terrainState.ListofEnvironmentalObjectsAlteredRotations.Add(MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredRotations[i]);
+                GameObject alteredID = PhotonView.Find(MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredIDs[i]).gameObject;
+                terrainState.ListofEnvironmentalObjectsAlteredPositions.Add(MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredPositions[i]);
+                terrainState.ListofEnvironmentalObjectsAlteredRotations.Add(MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredRotations[i]);
                 alteredID.transform.GetComponent<Rigidbody>().isKinematic = false;
-                StartCoroutine(monsterFunction.EnvironmentalPhysicsUndo(alteredID, MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredPositions[i], MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredRotations[i]));
+                StartCoroutine(monsterFunction.EnvironmentalPhysicsUndo(alteredID, MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredPositions[i], MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredRotations[i]));
             }
             if (PhotonNetwork.isMasterClient)
             {
-                mainGui.photonView.RPC("SyncPeople", PhotonTargets.OthersBuffered, Stats.transform.position, terrainState.MasterPosition, terrainState.gainX, terrainState.gainY, MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredIDs, MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredPositions, MyData.ThisPlayer.ListofEnvironmentalObjectsAlteredRotations,
-                    MyData.ThisPlayer.TreePosition, MyData.ThisPlayer.TreeRotation, MyData.ThisPlayer.RockPosition, MyData.ThisPlayer.RockRotation, MyData.ThisPlayer.HerbPatchPosition, MyData.ThisPlayer.HerbPatchRotation, MyData.ThisPlayer.WaterPosition, MyData.ThisPlayer.WaterRotation,
-                    MyData.ThisPlayer.BossMonsterHealth, MyData.ThisPlayer.BossMonsterHealthRandomModifier, MyData.ThisPlayer.BossMonsterDefense, MyData.ThisPlayer.BossMonsterDamage, MyData.ThisPlayer.BossMonsterExperience, MyData.ThisPlayer.BossMonsterLevel,
-                    MyData.ThisPlayer.MonsterHealth, MyData.ThisPlayer.MonsterHealthRandomModifier, MyData.ThisPlayer.MonsterDefense, MyData.ThisPlayer.MonsterDamage, MyData.ThisPlayer.MonsterExperience, MyData.ThisPlayer.MonsterLevel);
+                mainGui.photonView.RPC("SyncPeople", PhotonTargets.AllBufferedViaServer, Stats.transform.position, terrainState.MasterPosition.GetPhotonView().viewID, terrainState.gainX, terrainState.gainY, terrainState.gainXX, terrainState.gainYY, MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredIDs, MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredPositions, MyTerrainData.ThisTerrainData.ListofEnvironmentalObjectsAlteredRotations,
+                    MyTerrainData.ThisTerrainData.TreePosition, MyTerrainData.ThisTerrainData.TreeRotation, MyTerrainData.ThisTerrainData.RockPosition, MyTerrainData.ThisTerrainData.RockRotation, MyTerrainData.ThisTerrainData.HerbPatchPosition, MyTerrainData.ThisTerrainData.HerbPatchRotation, MyTerrainData.ThisTerrainData.WaterPosition, MyTerrainData.ThisTerrainData.WaterRotation,
+                    MyTerrainData.ThisTerrainData.BossMonsterHealth, MyTerrainData.ThisTerrainData.BossMonsterHealthRandomModifier, MyTerrainData.ThisTerrainData.BossMonsterDefense, MyTerrainData.ThisTerrainData.BossMonsterDamage, MyTerrainData.ThisTerrainData.BossMonsterExperience, MyTerrainData.ThisTerrainData.BossMonsterLevel,
+                    MyTerrainData.ThisTerrainData.MonsterHealth, MyTerrainData.ThisTerrainData.MonsterHealthRandomModifier, MyTerrainData.ThisTerrainData.MonsterDefense, MyTerrainData.ThisTerrainData.MonsterDamage, MyTerrainData.ThisTerrainData.MonsterExperience, MyTerrainData.ThisTerrainData.MonsterLevel);
 
-                mainGui.photonView.RPC("SyncScales", PhotonTargets.OthersBuffered, MyData.ThisPlayer.TreeScale, MyData.ThisPlayer.RockScale, MyData.ThisPlayer.HerbPatchScale, MyData.ThisPlayer.WaterScale);
+                mainGui.photonView.RPC("SyncScales", PhotonTargets.AllBufferedViaServer, MyTerrainData.ThisTerrainData.TreeScale, MyTerrainData.ThisTerrainData.RockScale, MyTerrainData.ThisTerrainData.HerbPatchScale, MyTerrainData.ThisTerrainData.WaterScale);
             }
 
             CurrentSaveSelectedButton = null;
@@ -401,8 +440,6 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
 
             terrainState.NotLoading[0] = true;
             terrainState.NotLoading[1] = true;
-
-            Debug.Log(terrainState.NotLoading[0]);
         }
     }
 
@@ -421,11 +458,16 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
     }
 
     //serialize our UserData
-    string SerializeObject(object SerialzedObject)  //xml 
+    string SerializeObject(object SerialzedObject, string TypeData)  //xml 
     {
         string XmlizedString = null;
         MemoryStream memoryStream = new MemoryStream();
-        XmlSerializer XMLSerializer = new XmlSerializer(typeof(UserData));
+        XmlSerializer XMLSerializer;
+        if (TypeData == "Character")
+            XMLSerializer = new XmlSerializer(typeof(CharacterUserData));
+        else
+            XMLSerializer = new XmlSerializer(typeof(TerrainUserData));
+
         XmlTextWriter xmlTextWriter = new XmlTextWriter(memoryStream, Encoding.UTF8);
         XMLSerializer.Serialize(xmlTextWriter, SerialzedObject);
         memoryStream = (MemoryStream)xmlTextWriter.BaseStream;
@@ -434,60 +476,120 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
     }
 
     //deserialze our Userdata
-    object DeserializeObject(string xmlString)   //xml
+    object DeserializeObject(string xmlString, string TypeData)   //xml
     {
-        XmlSerializer XMLSerializer = new XmlSerializer(typeof(UserData));
+        XmlSerializer XMLSerializer;
+        if (TypeData == "Character")
+            XMLSerializer = new XmlSerializer(typeof(CharacterUserData));
+        else
+            XMLSerializer = new XmlSerializer(typeof(TerrainUserData));
+
         MemoryStream memoryStream = new MemoryStream(StringToUTF8ByteArray(xmlString));
         XmlTextWriter xmlTextWriter = new XmlTextWriter(memoryStream, Encoding.UTF8);
         return XMLSerializer.Deserialize(memoryStream);
     }
 
-    public void CreateXML()
+    public void CreateXML(string TypeData, string fileLocation, string TypeofSave)
     {
-        FileName = InputSaveImage.text + ".dat";
-        //xml
-        //StreamWriter writer;
-        //FileInfo fileinfo = new FileInfo(FileLocation + "\\" + FileName);
-
-        //if (!fileinfo.Exists)
-        //{
-        //    writer = fileinfo.CreateText();
-        //}
-        //else
-        //{
-        //    fileinfo.Delete();
-        //    writer = fileinfo.CreateText();
-        //}
-
         BinaryFormatter bf = new BinaryFormatter();
-        FileStream file = File.Create(FileLocation + "\\" + FileName);
         SurrogateSelector surrogateSelector = new SurrogateSelector();
         Vector3SerializationSurrogate vector3SS = new Vector3SerializationSurrogate();
         QuaternionSerializationSurrogate quaternion4SS = new QuaternionSerializationSurrogate();
+        FileStream file = null;
 
         surrogateSelector.AddSurrogate(typeof(Vector3), new StreamingContext(StreamingContextStates.All), vector3SS);
         surrogateSelector.AddSurrogate(typeof(Quaternion), new StreamingContext(StreamingContextStates.All), quaternion4SS);
         bf.SurrogateSelector = surrogateSelector;
 
-        bf.Serialize(file, MyData);
-        file.Close();
+        AutoSaveIndex++;
+        if (AutoSaveIndex > 2)
+            AutoSaveIndex = 0;
+
+        if (TypeData == "Character")
+        {
+            CharacterFileName = PlayerPrefs.GetString("PlayerName");
+
+            if (File.Exists(fileLocation + "\\" + CharacterFileName + ".dat"))
+            {
+                file = File.Open(fileLocation + "\\" + CharacterFileName + ".dat", FileMode.Open);
+                bf.Serialize(new BufferedStream(file), MyCharacterData);
+            }
+            else
+            {
+                file = File.Create(fileLocation + "\\" + CharacterFileName);
+                bf.Serialize(new BufferedStream(file), MyCharacterData); // write to xml file
+            }
+            // create new file if it doesnt exist
+        }
+        else
+        {
+            if (InputSaveImage.text != string.Empty && TypeofSave == "Manual")
+                TerrainFileName = InputSaveImage.text + "_" + Stats.PlayerName + "_Lvl" + Stats.PlayerLevel + " " + System.DateTime.Now.ToString("ddMMMyyyy HH;mm;ss") + ".dat";
+            else if (TypeofSave == "Auto" || TypeofSave == "AutoStart")
+                TerrainFileName = "Autosave" + "_" + Stats.PlayerName + "_Lvl" + Stats.PlayerLevel + " " + System.DateTime.Now.ToString("ddMMMyyyy HH;mm;ss") + ".dat";
+
+            // dont save environment data in autosave only player data
+            if ((TypeofSave == "Auto" || TypeofSave == "AutoStart") && ListofSaveButtons.Count > 2)
+            {
+                if (File.Exists(fileLocation + "\\" + ListofSaveButtons[AutoSaveIndex].GetComponentInChildren<Text>().text + ".dat")) // saving an autosave into another autosave                     
+                {
+                    System.IO.File.Move(fileLocation + "\\" + ListofSaveButtons[AutoSaveIndex].GetComponentInChildren<Text>().text + ".dat",
+                        fileLocation + "\\" + TerrainFileName);
+                
+                    ListofSaveButtons[AutoSaveIndex].GetComponentInChildren<Text>().text = TerrainFileName.Remove(TerrainFileName.IndexOf("."), TerrainFileName.Length - TerrainFileName.IndexOf("."));
+                    file = File.Open(fileLocation + "\\" + TerrainFileName, FileMode.Open);
+                    bf.Serialize(new BufferedStream(file), MyTerrainData); // write to xml file
+                }
+                else if (ListofSaveButtons.Count < 8)
+                {
+                    file = File.Create(fileLocation + "\\" + TerrainFileName);
+                    bf.Serialize(new BufferedStream(file), MyTerrainData); // write to xml file
+
+                    if (ListofSaveButtons[AutoSaveIndex].GetComponentInChildren<Text>().text == "Empty AutoSave") // autosaving into an empty autosave
+                    {
+                        ListofSaveButtons[AutoSaveIndex].GetComponentInChildren<Text>().text = TerrainFileName.Remove(TerrainFileName.IndexOf("."), TerrainFileName.Length - TerrainFileName.IndexOf("."));
+                    }
+                    else // somehow an error occurs
+                    {
+                        Button SaveGameButton = Instantiate(ButtonPrefab, transform.position, transform.rotation)
+                            as Button;
+                        ListofSaveButtons.Add(SaveGameButton);
+                        SaveGameButton.transform.SetParent(ListofSavedGamesImage.transform);
+                        SaveGameButton.transform.localScale = SaveGameButton.transform.parent.localScale;
+                        SaveGameButton.GetComponentInChildren<Text>().text = TerrainFileName.Remove(TerrainFileName.IndexOf("."), TerrainFileName.Length - TerrainFileName.IndexOf("."));
+                        SaveGameButton.onClick.AddListener(() => CurrentSelectedSaveFunction(SaveGameButton));
+                    }
+                }
+            }
+            else if (ListofSaveButtons.Count < 8) // playermade saves
+            {
+                file = File.Create(fileLocation + "\\" + TerrainFileName);
+                bf.Serialize(new BufferedStream(file), MyTerrainData);
+                Button SaveGameButton = Instantiate(ButtonPrefab, transform.position, transform.rotation)
+                    as Button;
+                ListofSaveButtons.Add(SaveGameButton);
+                SaveGameButton.transform.SetParent(ListofSavedGamesImage.transform);
+                SaveGameButton.transform.localScale = SaveGameButton.transform.parent.localScale;
+                SaveGameButton.GetComponentInChildren<Text>().text = TerrainFileName.Remove(TerrainFileName.IndexOf("."), TerrainFileName.Length - TerrainFileName.IndexOf(".")); 
+                SaveGameButton.onClick.AddListener(() => CurrentSelectedSaveFunction(SaveGameButton));
+            }
+            else
+            {
+                mainGui.StartCoroutine(mainGui.ActivateGeneralText("Delete a save to make more space."));
+            }
+            
+        }
+
+        if (file != null)
+            file.Close();
 
         // create a new save that can be clicked
-
-        Button SaveGameButton = Instantiate(ButtonPrefab, transform.position, transform.rotation)
-            as Button;
-        ListofSaveButtons.Add(SaveGameButton);
-        SaveGameButton.transform.SetParent(ListofSavedGamesImage.transform);
-        SaveGameButton.transform.localScale = SaveGameButton.transform.parent.localScale;
-        SaveGameButton.GetComponentInChildren<Text>().text = FileName.Remove(FileName.IndexOf("."), FileName.Length - FileName.IndexOf(".")); ;
-        SaveGameButton.onClick.AddListener(() => CurrentSelectedSaveFunction(SaveGameButton));
-
         //xml
         //writer.Write(data);
         //writer.Close();
     }
 
-    public void LoadXML(string CurrentButtonText)
+    public void LoadXML(string CurrentButtonText, string TypeData, string fileLocation)
     {
         //xml
         //FileName = FileLocation + "\\" + CurrentButtonText.text + ".xml";
@@ -495,10 +597,10 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
         //string inforeader = reader.ReadToEnd();
         //reader.Close();
         //data = inforeader;
-        if (File.Exists(FileLocation + "\\" + CurrentButtonText + ".dat"))
+        if (File.Exists(fileLocation + "\\" + CurrentButtonText + ".dat"))
         {
             BinaryFormatter bf = new BinaryFormatter();
-            FileStream file = File.Open(FileLocation + "\\" + CurrentButtonText + ".dat", FileMode.Open);
+            FileStream file = File.Open(fileLocation + "\\" + CurrentButtonText + ".dat", FileMode.Open);
             SurrogateSelector surrogateSelector = new SurrogateSelector();
             Vector3SerializationSurrogate vector3SS = new Vector3SerializationSurrogate();
             QuaternionSerializationSurrogate quaternion4SS = new QuaternionSerializationSurrogate();
@@ -506,14 +608,21 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
             surrogateSelector.AddSurrogate(typeof(Vector3), new StreamingContext(StreamingContextStates.All), vector3SS);
             surrogateSelector.AddSurrogate(typeof(Quaternion), new StreamingContext(StreamingContextStates.All), quaternion4SS);
             bf.SurrogateSelector = surrogateSelector;
+            file.Position = 0;
 
-            MyData = (UserData)bf.Deserialize(file);
+            if (TypeData == "Character" && file.Length > 0)
+                MyCharacterData = (CharacterUserData)bf.Deserialize(file);
+            else if (file.Length > 0)
+                MyTerrainData = (TerrainUserData)bf.Deserialize(file);
             file.Close();
         }
         else
         {
-            CurrentSaveSelectedButtonText = string.Empty; // new player new save multiplayer 
-            PlayerPrefs.SetString("LoadSave", string.Empty);
+            if (TypeData != "Character")
+            {
+                CurrentSaveSelectedButtonText = string.Empty; // new player new save multiplayer 
+                PlayerPrefs.SetString("LoadSave", string.Empty);
+            }
         }
     }
 
@@ -522,7 +631,13 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
         if ( CurrentSaveSelectedButton == null ||CurrentSaveSelectedButton.text == string.Empty)
             return;
 
-        FileInfo fileinfo = new FileInfo(FileLocation + "\\" + CurrentSaveSelectedButton.GetComponentInChildren<Text>().text + ".dat");
+        for (int i = 0; i < ListofSaveButtons.Count; i++)
+        {
+            if (ListofSaveButtons[i].GetComponentInChildren<Text>().text == CurrentSaveSelectedButton.text && i < 3) // dont delete autosaves
+                return;
+        }
+
+        FileInfo fileinfo = new FileInfo(TerrainFileLocation + "\\" + CurrentSaveSelectedButton.GetComponentInChildren<Text>().text + ".dat");
         fileinfo.Delete();
         CurrentSaveSelectedButton.text = string.Empty;
         CurrentSaveSelectedButtonText = string.Empty;
@@ -543,8 +658,10 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
 
     void Start()
     {
-        FileName = "Default.dat";
-        FileLocation = Application.dataPath + "\\" + "SaveData";
+        CharacterFileName = "Default.dat";
+        TerrainFileName = "Default.dat";
+        TerrainFileLocation = Application.dataPath + "\\" + "TerrainSaveData";
+        CharacterFileLocation = Application.dataPath + "\\" + "CharacterSaveData";
 
         if (Application.loadedLevelName != "MainMenu")
         {
@@ -559,19 +676,48 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
             GatheringDB = terrainState.Player.GetComponent<GatheringSkillDatabase>();
             GeneralDB = terrainState.Player.GetComponent<GeneralSkillsDatabase>();
             terrainState.Player.GetComponent<ArmorSwitch>().thisRenderer = terrainState.Player.GetComponent<ArmorSwitch>().GetComponentInChildren<SkinnedMeshRenderer>(); // get naked bones without armor/weapons equipped
+            InvokeRepeating("AutoSaveDataFunction", 15, 25); // only save terrain data at start, when autosaving skip that part for lag purposses
         }
 
-        MyData = new UserData();
-        info = new DirectoryInfo(FileLocation);
+
+        info = new DirectoryInfo(TerrainFileLocation);
         AllXMLFiles = info.GetFiles("*.dat*");
         StringXmlFiles = new string[AllXMLFiles.Length];
         ListofSaveButtons = new List<Button>();
+        int AutoSaveCount = 0;
 
-        for (int j = 0; j < StringXmlFiles.Length; j++) // load all the saves when first loaded
+        for (int j = 0; j < StringXmlFiles.Length; j++)
         {
-            StringXmlFiles[j] = AllXMLFiles[j].ToString().Remove(0, FileLocation.Length + 1);
+            StringXmlFiles[j] = AllXMLFiles[j].ToString().Remove(0, TerrainFileLocation.Length + 1);
+            if (!StringXmlFiles[j].Contains(".meta") && StringXmlFiles[j].Contains("Autosave")) // for previous autosave
+            {
+                AutoSaveCount++;
+                StringXmlFiles[j] = StringXmlFiles[j].Remove(StringXmlFiles[j].IndexOf("."), StringXmlFiles[j].Length - StringXmlFiles[j].IndexOf("."));
 
-            if (!StringXmlFiles[j].Contains(".meta"))
+                Button SaveGameButton = Instantiate(ButtonPrefab, transform.position, transform.rotation)
+                    as Button;
+                ListofSaveButtons.Add(SaveGameButton);
+                SaveGameButton.transform.SetParent(ListofSavedGamesImage.transform);
+                SaveGameButton.transform.localScale = SaveGameButton.transform.parent.localScale;
+                SaveGameButton.GetComponentInChildren<Text>().text = StringXmlFiles[j];
+                SaveGameButton.onClick.AddListener(() => CurrentSelectedSaveFunction(SaveGameButton));
+            }
+        }
+        for (int i = AutoSaveCount; i < 3; i++) // empty autosaves
+        {
+            Button SaveGameButton = Instantiate(ButtonPrefab, transform.position, transform.rotation)
+                as Button;
+            ListofSaveButtons.Add(SaveGameButton);
+            SaveGameButton.transform.SetParent(ListofSavedGamesImage.transform);
+            SaveGameButton.transform.localScale = SaveGameButton.transform.parent.localScale;
+            SaveGameButton.GetComponentInChildren<Text>().text = "Empty AutoSave";
+        }
+
+        for (int j = 0; j < StringXmlFiles.Length; j++) // loads playermade saves
+        {
+            StringXmlFiles[j] = AllXMLFiles[j].ToString().Remove(0, TerrainFileLocation.Length + 1);
+
+            if (!StringXmlFiles[j].Contains(".meta") && !StringXmlFiles[j].Contains("Autosave"))
             {
                 StringXmlFiles[j] = StringXmlFiles[j].Remove(StringXmlFiles[j].IndexOf("."), StringXmlFiles[j].Length - StringXmlFiles[j].IndexOf("."));
 
@@ -584,7 +730,6 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
                 SaveGameButton.onClick.AddListener(() => CurrentSelectedSaveFunction(SaveGameButton));
             }
         }
-
     }
 
     void Awake()
@@ -593,17 +738,20 @@ public class SaveAndLoadGUI : Photon.MonoBehaviour, IPointerDownHandler
         {
             mainmenuCanvas = transform.root.GetComponent<MainMenu>();
         }
+
+        MyTerrainData = new TerrainUserData();
+        MyCharacterData = new CharacterUserData();
     }
 }
 
 [System.Serializable]
-public class UserData
+public class CharacterUserData // and monster data 
 {
 
-    public UserDataDatabase ThisPlayer;
+    public CharacterSerializeData ThisCharacterData;
 
     [System.Serializable]
-    public struct UserDataDatabase // sending gameobjects - get photonviewid
+    public struct CharacterSerializeData // sending gameobjects - get photonviewid
     { // vector3 and quaternion interface for serializing/deserializing custom classes
         private Vector3 playerPosition;
         public Vector3 PlayerPosition
@@ -611,18 +759,13 @@ public class UserData
             get { return playerPosition; }
             set { playerPosition = value; }
         }
-        private Vector3 MasterplayerPosition; // terrain purposes
-        public Vector3 MasterPlayerPosition
-        {
-            get { return MasterplayerPosition; }
-            set { MasterplayerPosition = value; }
-        }
         private Quaternion playerRotation;
         public Quaternion PlayerRotation
         {
             get { return playerRotation; }
             set { playerRotation = value; }
         }
+        public string PlayerName;
         public float PlayerHealth;
         public float CurrentPlayerHealth;
         public float PlayerStamina;
@@ -631,8 +774,66 @@ public class UserData
         public float PlayerLevel;
         public float ExpRequired;
         public float SkillPoints;
+        public float CurrentHunger;
+        public float CurrentThirst;
+        // stats like damage/crit/atkspeed etc are applied by re-equipping armor/weapon in load section
+        public int[] TotalMiscStackAmounts; 
 
+        public int CurrentSlotMainWeapon;
+        public int CurrentSlotSecondaryWeapon;
+        public int CurrentSlotHead;
+        public int CurrentSlotArmor;
+        public int CurrentSlotLegs;
+
+        //InventoryManage;
+        public string[] SlotName;
+        public string[] Rarity;
+        public string[] tSprite;
+        public float[] InvDamageOrValue;
+        public float[] InvWeaponAttackSpeed;
+        public float[] InvCritRate;
+        public float[] InvArmorPen;
+        public float[] InvDefense;
+        public float[] InvHealth;
+        public float[] InvStamina;
+        public int[] CurrentInventorySlot;
+        public int[] StackAmounts;
+        public int[] isASecondary; //stackable
+        public string[] Description; // still need to do
+
+        public int[] GatheringCurrentRank;
+        public float[] GatheringCurrentExp;
+        public float[] GatheringMaxExp;
+
+        public int[] CraftingCurrentRank;
+        public float[] CraftingCurrentExp;
+        public float[] CraftingMaxExp;
+
+        // general skills
+
+        public int[] GeneralSkillPointRequired;
+        public float[] SkillChance;
+        public float[] GeneralDur;
+        public float[] GeneralCD;
+        public float[] SkillValue;
+        public int[] GeneralkillLevelRank;
+
+        public string[] SkillBars;
+
+    }
+}
+
+[System.Serializable]
+public class TerrainUserData
+{
+
+    public TerrainSerializeData ThisTerrainData;
+
+    [System.Serializable]
+    public struct TerrainSerializeData // sending gameobjects - get photonviewid
+    { // vector3 and quaternion interface for serializing/deserializing custom classes
         public int CurrentTerrainLevel;
+        public int MasterPlayerGameObjectPositionViewID;
 
         public int[] ListofEnvironmentalObjectsAlteredIDs;
         private Vector3[] listofEnvironmentalObjectsAlteredPositions;
@@ -734,50 +935,11 @@ public class UserData
         public float[] terrainMap;
         public float gainX;
         public float gainY;
+        public float gainXX;
+        public float gainYY;
         public float[] MiddleAlpha;
 
-        public int CurrentSlotMainWeapon;
-        public int CurrentSlotSecondaryWeapon;
-        public int CurrentSlotHead;
-        public int CurrentSlotArmor;
-        public int CurrentSlotLegs;
-
-        //InventoryManage;
-        public string[] SlotName;
-        public string[] Rarity;
-        public string[] tSprite;
-        public float[] InvDamageOrValue;
-        public float[] InvWeaponAttackSpeed;
-        public float[] InvCritRate;
-        public float[] InvArmorPen;
-        public float[] InvDefense;
-        public float[] InvHealth;
-        public float[] InvStamina;
-        public int[] CurrentInventorySlot;
-        public int[] StackAmounts;
-        public int[] isASecondary; //stackable
-        public string[] Description; // still need to do
-
-        public int[] GatheringCurrentRank;
-        public float[] GatheringCurrentExp;
-        public float[] GatheringMaxExp;
-
-        public int[] CraftingCurrentRank;
-        public float[] CraftingCurrentExp;
-        public float[] CraftingMaxExp;
-
-        // general skills
-
-        public int[] GeneralSkillPointRequired;
-        public float[] SkillChance;
-        public float[] GeneralDur;
-        public float[] GeneralCD;
-        public float[] SkillValue;
-        public int[] GeneralkillLevelRank;
-
-        public string[] SkillBars;
-
-        // monster data
+        // monster data - 
 
         private Vector3[] monsterSpawnLocations;
         public Vector3[] MonsterSpawnLocations
@@ -809,7 +971,7 @@ public class UserData
         public float BossMonsterDefense;
         public float BossMonsterDamage;
         public float BossMonsterExperience;
-        public float BossMonsterLevel;
+        public int BossMonsterLevel;
 
         public int[] MonsterMaterials;
         public float[] MonsterHealth;
@@ -817,6 +979,6 @@ public class UserData
         public float[] MonsterDefense;
         public float[] MonsterDamage;
         public float[] MonsterExperience;
-        public float[] MonsterLevel;
+        public int[] MonsterLevel;
     }
 }
